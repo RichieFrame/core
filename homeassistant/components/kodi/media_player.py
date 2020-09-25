@@ -50,6 +50,7 @@ from homeassistant.const import (
     CONF_USERNAME,
     STATE_IDLE,
     STATE_OFF,
+    STATE_STANDBY,
     STATE_PAUSED,
     STATE_PLAYING,
 )
@@ -271,6 +272,7 @@ class KodiEntity(MediaPlayerEntity):
         self._name = name
         self._unique_id = uid
         self._version = version
+        self._dpms = None
         self._players = None
         self._properties = {}
         self._item = {}
@@ -289,6 +291,10 @@ class KodiEntity(MediaPlayerEntity):
     @property
     def _kodi_is_off(self):
         return self._players is None
+
+    @property
+    def _kodi_is_sleeping(self):
+        return self._dpms
 
     @property
     def _no_active_players(self):
@@ -316,6 +322,18 @@ class KodiEntity(MediaPlayerEntity):
             return
 
         self._reset_state([])
+        self.async_write_ha_state()
+
+    @callback
+    def async_on_dpmson(self, sender, data):
+        """Handle the activation of display power management."""
+        self._dpms = True
+        self.async_write_ha_state()
+
+    @callback
+    def async_on_dpmsoff(self, sender, data):
+        """Handle the activation of display power management."""
+        self._dpms = False
         self.async_write_ha_state()
 
     @callback
@@ -355,6 +373,9 @@ class KodiEntity(MediaPlayerEntity):
         """Return the state of the device."""
         if self._kodi_is_off:
             return STATE_OFF
+
+        if self._kodi_is_sleeping:
+            return STATE_STANDBY
 
         if self._no_active_players:
             return STATE_IDLE
@@ -422,6 +443,8 @@ class KodiEntity(MediaPlayerEntity):
         self._connection.server.Application.OnVolumeChanged = (
             self.async_on_volume_changed
         )
+        self._connection.server.GUI.OnDPMSActivated = self.async_on_dpmson
+        self._connection.server.GUI.OnDPMSDeactivated = self.async_on_dpmsoff
         self._connection.server.System.OnQuit = self.async_on_quit
         self._connection.server.System.OnRestart = self.async_on_quit
         self._connection.server.System.OnSleep = self.async_on_quit
